@@ -34,7 +34,7 @@ try:
     sys.stderr.write(f"ERROR: do not set $GIMP_TESTING_PLUGINDIRS. This script will take care of it.\n")
     sys.stderr.write(f"       Set $GIMP_TESTING_PLUG_INS instead.\n")
     sys.exit(1)
-  GIMP_GLOBAL_BUILD_ROOT  = os.environ.get("GIMP_GLOBAL_BUILD_ROOT", ".")
+  GIMP_GLOBAL_BUILD_ROOT  = os.path.abspath(os.environ.get("GIMP_GLOBAL_BUILD_ROOT", "."))
   GIMP_GLOBAL_SOURCE_ROOT = os.environ.get("GIMP_GLOBAL_SOURCE_ROOT")
   GIMP_TESTING_PLUG_INS   = os.environ.get("GIMP_TESTING_PLUG_INS")
   if os.environ.get("GIMP_TESTING_PLUG_INS_IGNORE"):
@@ -45,11 +45,21 @@ try:
 
   # Create the temporary config directory
   suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-  GIMP3_DIRECTORY = os.path.join(GIMP_GLOBAL_BUILD_ROOT, f".GIMP3-build-config-{suffix}")
+  GIMP3_DIRECTORY = os.path.join(GIMP_GLOBAL_BUILD_ROOT, f"GIMP3-build-config-{suffix}")
   os.makedirs(GIMP3_DIRECTORY, mode=0o700, exist_ok=False)
   os.environ["GIMP3_DIRECTORY"] = GIMP3_DIRECTORY
   sys.stderr.write(f"INFO: temporary GIMP configuration directory: {os.path.relpath(GIMP3_DIRECTORY)}\n")
   os.environ["XDG_CACHE_HOME"] = os.path.join(GIMP3_DIRECTORY, '.cache')
+  # GIMP's build-time console is non-unique and must not attach to a desktop
+  # session bus. On macOS a stale/partially started D-Bus daemon can accept
+  # the socket connection but never complete authentication, indefinitely
+  # blocking g_application_register() before batch processing begins.
+  # An unreachable explicit address makes GIO fail fast and lets the
+  # non-unique GApplication continue locally, without modifying the user's
+  # session bus or starting another daemon.
+  if sys.platform == 'darwin':
+    os.environ['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=/dev/null'
+
 
   # Copy just the strictly needed plug-ins by the script or test (seee issue #11385)
   def is_script_file(filepath):
@@ -187,7 +197,7 @@ try:
       sys.stderr.write(f"ERROR: $GIMP3_DIRECTORY ({GIMP3_DIRECTORY}) should not be a symlink.\n")
       sys.exit(1)
     used_dir_prefix = str(Path(GIMP3_DIRECTORY).resolve().as_posix())[:-6]
-    tmpl_dir_prefix = f"{Path(os.environ['GIMP_GLOBAL_BUILD_ROOT']).resolve().as_posix()}/.GIMP3-build-config-"
+    tmpl_dir_prefix = f"{Path(os.environ['GIMP_GLOBAL_BUILD_ROOT']).resolve().as_posix()}/GIMP3-build-config-"
     if used_dir_prefix != tmpl_dir_prefix:
       sys.stderr.write(f"ERROR: $GIMP3_DIRECTORY ({GIMP3_DIRECTORY}) should be under the build directory with a specific prefix.\n")
       sys.stderr.write(f'       "{used_dir_prefix}" != "{tmpl_dir_prefix}"\n')
